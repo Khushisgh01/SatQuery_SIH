@@ -1,0 +1,22 @@
+@import "tailwindcss";
+
+:root {
+  --color-bg: #0A0A0F;
+  --color-surface: #141418;
+  --color-raised: #1A1A20;
+  --color-gold: #D4A843;
+  --color-orange: #F47216;
+  --color-text: #F2EDE6;
+  --color-warning: #E85D4A;
+  --font-sans: "Space Grotesk", sans-serif;
+  --font-mono: "Space Mono", monospace;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}   
