@@ -314,6 +314,138 @@ export async function generateSessionReport(session, generatedBy) {
       continue;
     }
 
+    // Special handling for Model 3 (Optical+SAR Fusion) — no imagery to
+    // render, so the block leads with Primary Prediction / Confidence
+    // Score as their own rows, then the full Top-5 ranked list.
+    if (reply.model === 'fusion') {
+      const primaryClass = reply.primaryClass || reply.fusionResults?.[0]?.label || 'Unknown';
+      const primaryConfidence = reply.primaryConfidence ?? reply.confidence ?? 0;
+      const top5 = reply.fusionResults || [];
+
+      ensureSpace(14);
+      const boxX = MARGIN;
+      const boxW = CONTENT_WIDTH;
+
+      // Primary Prediction row
+      doc.setFont('courier', 'normal');
+      doc.setFontSize(7.5);
+      doc.setTextColor(...MUTED);
+      doc.text('PRIMARY PREDICTION', boxX, y);
+      y += 5;
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.setTextColor(...INK);
+      const primaryLines = doc.splitTextToSize(primaryClass, boxW);
+      ensureSpace(primaryLines.length * 5.5);
+      doc.text(primaryLines, boxX, y);
+      y += primaryLines.length * 5.5 + 5;
+
+      // Confidence Score row
+      ensureSpace(10);
+      doc.setFont('courier', 'normal');
+      doc.setFontSize(7.5);
+      doc.setTextColor(...MUTED);
+      doc.text('CONFIDENCE SCORE', boxX, y);
+      y += 5;
+      doc.setFont('courier', 'bold');
+      doc.setFontSize(13);
+      doc.setTextColor(...GOLD_DEEP);
+      doc.text(`${primaryConfidence}%`, boxX, y);
+
+      // Confidence bar next to the number
+      const barX = boxX + 22;
+      const barW = 60;
+      const barY = y - 3.2;
+      doc.setDrawColor(...RULE);
+      doc.setLineWidth(2);
+      doc.line(barX, barY, barX + barW, barY);
+      doc.setDrawColor(...GOLD);
+      doc.setLineWidth(2);
+      doc.line(barX, barY, barX + (barW * Math.min(100, Math.max(0, primaryConfidence))) / 100, barY);
+      y += 9;
+
+      // Top-5 predictions table
+      if (top5.length) {
+        ensureSpace(top5.length * 5.5 + 12);
+        doc.setFont('courier', 'bold');
+        doc.setFontSize(7.5);
+        doc.setTextColor(...MUTED);
+        doc.text('TOP 5 PREDICTIONS', boxX, y);
+        y += 5;
+        doc.setDrawColor(...RULE);
+        doc.setLineWidth(0.2);
+        doc.line(MARGIN, y, PAGE.width - MARGIN, y);
+        y += 4.5;
+
+        doc.setFont('courier', 'normal');
+        doc.setFontSize(8.5);
+        top5.forEach((f, idx) => {
+          ensureSpace(6.5);
+          const rowY = y;
+
+          doc.setTextColor(...BODY);
+          doc.text(`${idx + 1}.`, MARGIN, rowY);
+
+          const labelLines = doc.splitTextToSize(f.label, CONTENT_WIDTH - 30);
+          doc.text(labelLines[0], MARGIN + 7, rowY);
+
+          doc.setFont('courier', 'bold');
+          doc.setTextColor(idx === 0 ? GOLD_DEEP[0] : BODY[0], idx === 0 ? GOLD_DEEP[1] : BODY[1], idx === 0 ? GOLD_DEEP[2] : BODY[2]);
+          doc.text(`${f.confidence}%`, PAGE.width - MARGIN, rowY, { align: 'right' });
+          doc.setFont('courier', 'normal');
+
+          // Small inline bar under the label, scaled to this class's confidence
+          const miniBarX = MARGIN + 7;
+          const miniBarW = 130;
+          const miniBarY = rowY + 1.6;
+          doc.setDrawColor(...RULE);
+          doc.setLineWidth(1.2);
+          doc.line(miniBarX, miniBarY, miniBarX + miniBarW, miniBarY);
+          doc.setDrawColor(...GOLD);
+          doc.setLineWidth(1.2);
+          doc.line(miniBarX, miniBarY, miniBarX + (miniBarW * Math.min(100, Math.max(0, f.confidence))) / 100, miniBarY);
+
+          y += 6.5;
+        });
+        y += 3;
+      }
+
+      // Location / date context, if present
+      if (reply.location || reply.requestedDate) {
+        ensureSpace(6);
+        doc.setFont('courier', 'normal');
+        doc.setFontSize(7.5);
+        doc.setTextColor(...MUTED);
+        const lat = reply.location?.latitude ?? reply.location?.lat;
+        const lon = reply.location?.longitude ?? reply.location?.lon;
+        const contextParts = [];
+        if (lat !== undefined && lon !== undefined) contextParts.push(`LAT ${lat} \u00b7 LON ${lon}`);
+        if (reply.requestedDate) contextParts.push(`DATE ${reply.requestedDate}`);
+        if (reply.sentinel1Date) contextParts.push(`SAR PASS ${reply.sentinel1Date}`);
+        if (contextParts.length) {
+          doc.text(contextParts.join('   \u00b7   '), MARGIN, y);
+          y += 6;
+        }
+      }
+
+      // Model info footer for this turn
+      ensureSpace(7);
+      doc.setFont('courier', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(...GOLD_DEEP);
+      doc.text(
+        `${MODEL_META[reply.model].name}  \u00b7  ${reply.responseTime}s  \u00b7  SECOND REVIEW: PENDING`,
+        MARGIN,
+        y
+      );
+      y += 10;
+
+      doc.setDrawColor(...RULE);
+      doc.setLineWidth(0.2);
+      doc.line(MARGIN, y - 4, PAGE.width - MARGIN, y - 4);
+      continue;
+    }
+
     // Standard format for other models
     if (reply.images?.length) {
       const box = 36;
