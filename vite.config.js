@@ -13,8 +13,8 @@ const model1Proxy = {
 }
 
 const model2Proxy = {
-  '/detect-change': {
-    target: 'https://8002-gpu-t4-s-kkb-ass1c0-3v2vi2mcxnyuq-c.asia-southeast1-0.prod.colab.dev',
+  '/api': {
+    target: 'https://sih-satquery.onrender.com',
     changeOrigin: true,
     timeout: 120000,
   },

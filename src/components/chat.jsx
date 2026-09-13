@@ -30,6 +30,8 @@ export default function SatQueryChat({ onBack, onOpenProfile }) {
 
   const [inputText, setInputText] = useState(() => readPersistedUi().inputText || '');
   const [pendingImages, setPendingImages] = useState([]);
+  const [beforeImage, setBeforeImage] = useState(() => readPersistedUi().beforeImage || null);
+  const [afterImage, setAfterImage] = useState(() => readPersistedUi().afterImage || null);
   const [isThinking, setIsThinking] = useState(false);
   const [activeMessageId, setActiveMessageId] = useState(null);
   const [selectedDetectionId, setSelectedDetectionId] = useState(null);
@@ -126,8 +128,10 @@ export default function SatQueryChat({ onBack, onOpenProfile }) {
       activeSessionId,
       userId: user?.id,
       inputText,
+      beforeImage,
+      afterImage,
     });
-  }, [selectedModel, activeSessionId, user?.id, inputText]);
+  }, [selectedModel, activeSessionId, user?.id, inputText, beforeImage, afterImage]);
 
   const activeSession = sessions.find((s) => s.id === activeSessionId) || sessions[0] || createSession();
   const messages = activeSession.messages || [];
@@ -140,6 +144,8 @@ export default function SatQueryChat({ onBack, onOpenProfile }) {
     setShowChangeMap(true);
     setSliderPct(50);
     setPendingImages([]);
+    setBeforeImage(null);
+    setAfterImage(null);
     setNotice('');
     setInputText('');
     setIsDragOver(false);
@@ -150,6 +156,8 @@ export default function SatQueryChat({ onBack, onOpenProfile }) {
     draftsRef.current[id] = {
       inputText,
       pendingImages,
+      beforeImage,
+      afterImage,
       selectedModel,
       activeMessageId,
       selectedDetectionId,
@@ -163,6 +171,8 @@ export default function SatQueryChat({ onBack, onOpenProfile }) {
     if (draft) {
       setInputText(draft.inputText);
       setPendingImages(draft.pendingImages);
+      setBeforeImage(draft.beforeImage || null);
+      setAfterImage(draft.afterImage || null);
       setSelectedModel(draft.selectedModel);
       setActiveMessageId(draft.activeMessageId);
       setSelectedDetectionId(draft.selectedDetectionId);
@@ -274,36 +284,49 @@ export default function SatQueryChat({ onBack, onOpenProfile }) {
 
   const handleSend = () => {
     const text = inputText.trim();
-    if (!text && pendingImages.length === 0) return;
+    // Allow Model 2 to work with images only (no text required)
+    if (!text && pendingImages.length === 0 && selectedModel !== 'bitcd') return;
     if (isThinking) return;
     if (!selectedModel) {
       setNotice('Select a model before sending a query.');
       setTimeout(() => setNotice(''), 3200);
       return;
     }
+    
     const modelOpt = MODEL_OPTIONS.find((m) => m.id === selectedModel);
-    if (pendingImages.length < (modelOpt?.images || 1)) {
+    const imageCount = selectedModel === 'bitcd' 
+      ? (beforeImage && afterImage ? 2 : 0)
+      : pendingImages.length;
+      
+    if (imageCount < (modelOpt?.images || 1)) {
       setNotice(
         selectedModel === 'bitcd'
-          ? 'Change detection needs two images.'
+          ? 'Change detection needs two images (Before and After).'
           : 'Attach an image first.'
       );
       setTimeout(() => setNotice(''), 3200);
       return;
     }
-
+    // For Model 2, no text query is needed - only images
+    const finalText = text || (selectedModel === 'bitcd' ? '' : '');
+    
     let sessionId = activeSessionId;
     if (!sessionId) {
       sessionId = uid('session');
       activeSessionIdRef.current = sessionId;
       setActiveSessionId(sessionId);
     }
-    const images = pendingImages;
+    
+    // Use separate before/after images for Model 2, otherwise use pendingImages
+    const images = selectedModel === 'bitcd' 
+      ? (beforeImage && afterImage ? [beforeImage, afterImage] : pendingImages)
+      : pendingImages;
+      
     const wasNewSession = activeSession.title === 'New session';
     const userMessage = {
       id: uid('msg'),
       role: 'user',
-      text: text || (images.length > 1 ? 'Compare these two scenes.' : 'Analyze this scene.'),
+      text: finalText || (selectedModel === 'bitcd' ? '' : (images.length > 1 ? 'Compare these two scenes.' : 'Analyze this scene.')),
       images,
     };
     const userSequence = (activeSession.messages || []).length;
@@ -326,6 +349,10 @@ export default function SatQueryChat({ onBack, onOpenProfile }) {
     });
     setInputText('');
     setPendingImages([]);
+    if (selectedModel === 'bitcd') {
+      setBeforeImage(null);
+      setAfterImage(null);
+    }
     setIsThinking(true);
 
     const canPersist = isPersistedSessionId(sessionId);
@@ -346,7 +373,7 @@ export default function SatQueryChat({ onBack, onOpenProfile }) {
         })
       : Promise.resolve({ uploadedImages: [] });
 
-    getModelReply(userMessage.text, images, selectedModel)
+    getModelReply(finalText, images, selectedModel)
       .then((reply) => {
         const agentMessage = {
           id: uid('msg'),
@@ -381,6 +408,7 @@ export default function SatQueryChat({ onBack, onOpenProfile }) {
         });
       })
       .catch((e) => {
+        console.error('Model API error:', e);
         setIsThinking(false);
         setNotice('The model did not respond \u2014 try again.');
         setTimeout(() => setNotice(''), 4200);
@@ -447,7 +475,7 @@ export default function SatQueryChat({ onBack, onOpenProfile }) {
       return ['Where are the water bodies?', 'Locate built-up structures in this scene.'];
     }
     if (selectedModel === 'bitcd' || activeMessage?.model === 'bitcd') {
-      return ['What changed between these two images?', 'Highlight new construction.'];
+      return []; // No text suggestions for Model 2 - only images
     }
     if (selectedModel === 'geochat' || activeMessage?.model === 'geochat') {
       return ['Are there any water bodies here?', 'Is there evidence of built-up expansion?'];
@@ -551,6 +579,142 @@ export default function SatQueryChat({ onBack, onOpenProfile }) {
                 selectedDetectionId={selectedDetectionId}
                 setSelectedDetectionId={setSelectedDetectionId}
               />
+            ) : selectedModel === 'bitcd' ? (
+              <div className="absolute inset-4 grid grid-cols-2 gap-4 p-4">
+                {/* Before Image Upload */}
+                <div
+                  className={`relative rounded-[4px] border border-dashed flex flex-col items-center justify-center gap-3 transition-colors ${
+                    beforeImage
+                      ? 'border-[#D4A843] bg-[rgba(212,168,67,0.05)]'
+                      : 'border-[rgba(212,168,67,0.25)]'
+                  }`}
+                >
+      {beforeImage ? (
+                    <div className="relative w-full h-full">
+                      <img
+                        src={beforeImage.url}
+                        alt="Before"
+                        className="w-full h-full object-cover rounded-[3px]"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setBeforeImage(null)}
+                        className="absolute top-2 right-2 w-6 h-6 rounded-full bg-[#0A0A0F]/80 flex items-center justify-center text-[#F2EDE6] hover:text-[#F47216] transition-colors"
+                      >
+                        <IconClose className="w-3 h-3" />
+                      </button>
+                      <div className="absolute bottom-2 left-2 bg-[#0A0A0F]/80 px-2 py-1 rounded-[2px]">
+                        <span className="font-['Space_Mono'] text-[9px] text-[#D4A843] uppercase tracking-wider">
+                          BEFORE
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <IconImage className="w-6 h-6 text-[#D4A843]/60" />
+                      <div className="text-center px-4">
+                        <p className="text-xs text-[#F2EDE6]/70">Before Image</p>
+                        <p className="mt-1 font-['Space_Mono'] text-[9px] text-[#F2EDE6]/40 uppercase tracking-wider">
+                          Earlier date
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const input = document.createElement('input');
+                          input.type = 'file';
+                          input.accept = 'image/*';
+                          input.onchange = (e) => {
+                            const file = e.target.files[0];
+                            if (file) {
+                              const reader = new FileReader();
+                              reader.onload = (e) => {
+                                setBeforeImage({
+                                  id: uid('img'),
+                                  url: e.target.result,
+                                  file,
+                                });
+                              };
+                              reader.readAsDataURL(file);
+                            }
+                          };
+                          input.click();
+                        }}
+                        className="font-['Space_Mono'] text-[9px] uppercase tracking-wider px-2 py-1 rounded-[3px] border border-[rgba(212,168,67,0.35)] text-[#F2EDE6]/70 hover:text-[#D4A843]"
+                      >
+                        Upload
+                      </button>
+                    </>
+                  )}
+                </div>
+
+                {/* After Image Upload */}
+                <div
+                  className={`relative rounded-[4px] border border-dashed flex flex-col items-center justify-center gap-3 transition-colors ${
+                    afterImage
+                      ? 'border-[#D4A843] bg-[rgba(212,168,67,0.05)]'
+                      : 'border-[rgba(212,168,67,0.25)]'
+                  }`}
+                >
+                  {afterImage ? (
+                    <div className="relative w-full h-full">
+                      <img
+                        src={afterImage.url}
+                        alt="After"
+                        className="w-full h-full object-cover rounded-[3px]"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setAfterImage(null)}
+                        className="absolute top-2 right-2 w-6 h-6 rounded-full bg-[#0A0A0F]/80 flex items-center justify-center text-[#F2EDE6] hover:text-[#F47216] transition-colors"
+                      >
+                        <IconClose className="w-3 h-3" />
+                      </button>
+                      <div className="absolute bottom-2 left-2 bg-[#0A0A0F]/80 px-2 py-1 rounded-[2px]">
+                        <span className="font-['Space_Mono'] text-[9px] text-[#D4A843] uppercase tracking-wider">
+                          AFTER
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <IconImage className="w-6 h-6 text-[#D4A843]/60" />
+                      <div className="text-center px-4">
+                        <p className="text-xs text-[#F2EDE6]/70">After Image</p>
+                        <p className="mt-1 font-['Space_Mono'] text-[9px] text-[#F2EDE6]/40 uppercase tracking-wider">
+                          Later date
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const input = document.createElement('input');
+                          input.type = 'file';
+                          input.accept = 'image/*';
+                          input.onchange = (e) => {
+                            const file = e.target.files[0];
+                            if (file) {
+                              const reader = new FileReader();
+                              reader.onload = (e) => {
+                                setAfterImage({
+                                  id: uid('img'),
+                                  url: e.target.result,
+                                  file,
+                                });
+                              };
+                              reader.readAsDataURL(file);
+                            }
+                          };
+                          input.click();
+                        }}
+                        className="font-['Space_Mono'] text-[9px] uppercase tracking-wider px-2 py-1 rounded-[3px] border border-[rgba(212,168,67,0.35)] text-[#F2EDE6]/70 hover:text-[#D4A843]"
+                      >
+                        Upload
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
             ) : pendingImages.length > 0 ? (
               <PendingStage images={pendingImages} />
             ) : (
@@ -565,9 +729,7 @@ export default function SatQueryChat({ onBack, onOpenProfile }) {
                 <div className="text-center px-6">
                   <p className="text-sm text-[#F2EDE6]/70">
                     {selectedModel
-                      ? selectedModel === 'bitcd'
-                        ? 'Drop two dated scenes to compare'
-                        : 'Drop a satellite scene, then ask your question'
+                      ? 'Drop a satellite scene, then ask your question'
                       : 'Select a model, then drop 1–2 images'}
                   </p>
                   <p className="mt-1.5 font-['Space_Mono'] text-[10px] text-[#F2EDE6]/40 uppercase tracking-wider">
@@ -826,7 +988,7 @@ export default function SatQueryChat({ onBack, onOpenProfile }) {
                   !selectedModel
                     ? 'Select a model first…'
                     : selectedModel === 'bitcd'
-                    ? 'Ask what changed…'
+                    ? 'Upload two images and send (no text needed)'
                     : 'Ask about this scene…'
                 }
                 className="flex-1 bg-transparent outline-none text-sm placeholder:text-[#F2EDE6]/30 min-w-0"
@@ -836,7 +998,8 @@ export default function SatQueryChat({ onBack, onOpenProfile }) {
                 disabled={
                   isThinking ||
                   !selectedModel ||
-                  (!inputText.trim() && pendingImages.length === 0)
+                  (selectedModel !== 'bitcd' && !inputText.trim() && pendingImages.length === 0) ||
+                  (selectedModel === 'bitcd' && (!beforeImage || !afterImage))
                 }
                 className="w-8 h-8 rounded-[3px] bg-[#F47216] disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center text-[#F2EDE6] shrink-0 transition-opacity"
                 aria-label="Send"
@@ -1156,54 +1319,57 @@ function AgentBubble({ message, isActive, onFocus }) {
               </span>
             </div>
 
-            {/* Uploaded Images */}
+            {/* Uploaded Images with Change Mask Overlay */}
             {message.images && message.images.length >= 2 && (
-              <div className="mb-3 grid grid-cols-2 gap-2">
-                <div className="relative h-32 bg-[#14141c] rounded-[3px] border border-[rgba(212,168,67,0.2)] overflow-hidden">
-                  <img
-                    src={message.images[0].url}
-                    alt="Before"
-                    className="w-full h-full object-cover"
-                  />
-                  <div className="absolute bottom-0 left-0 right-0 bg-[#0A0A0F]/80 px-2 py-1">
-                    <div className="font-['Space_Mono'] text-[9px] text-[#D4A843]/90 uppercase tracking-wider">
-                      BEFORE
-                    </div>
-                  </div>
-                </div>
-                <div className="relative h-32 bg-[#14141c] rounded-[3px] border border-[rgba(212,168,67,0.2)] overflow-hidden">
-                  <img
-                    src={message.images[1].url}
-                    alt="After"
-                    className="w-full h-full object-cover"
-                  />
-                  <div className="absolute bottom-0 left-0 right-0 bg-[#0A0A0F]/80 px-2 py-1">
-                    <div className="font-['Space_Mono'] text-[9px] text-[#D4A843]/90 uppercase tracking-wider">
-                      AFTER
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Change Mask Image */}
-            {message.changeMaskUrl && (
               <div className="mb-3">
                 <div className="font-['Space_Mono'] text-[9px] text-[#D4A843]/70 uppercase tracking-wider mb-2">
-                  Change Detection Mask
+                  Images with Change Mask Overlay
                 </div>
-                <div className="relative h-40 bg-[#14141c] rounded-[3px] border border-[rgba(212,168,67,0.2)] overflow-hidden">
-                  <img
-                    src={message.changeMaskUrl}
-                    alt="Change Mask"
-                    className="w-full h-full object-contain"
-                  />
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="relative h-40 bg-[#14141c] rounded-[3px] border border-[rgba(212,168,67,0.2)] overflow-hidden">
+                    <img
+                      src={message.images[0].url}
+                      alt="Before"
+                      className="w-full h-full object-cover"
+                    />
+                    {message.changeMaskUrl && (
+                      <img
+                        src={message.changeMaskUrl}
+                        alt="Change Mask"
+                        className="absolute inset-0 w-full h-full object-cover opacity-40 mix-blend-multiply"
+                      />
+                    )}
+                    <div className="absolute bottom-0 left-0 right-0 bg-[#0A0A0F]/80 px-2 py-1">
+                      <div className="font-['Space_Mono'] text-[9px] text-[#D4A843]/90 uppercase tracking-wider">
+                        BEFORE
+                      </div>
+                    </div>
+                  </div>
+                  <div className="relative h-40 bg-[#14141c] rounded-[3px] border border-[rgba(212,168,67,0.2)] overflow-hidden">
+                    <img
+                      src={message.images[1].url}
+                      alt="After"
+                      className="w-full h-full object-cover"
+                    />
+                    {message.changeMaskUrl && (
+                      <img
+                        src={message.changeMaskUrl}
+                        alt="Change Mask"
+                        className="absolute inset-0 w-full h-full object-cover opacity-40 mix-blend-multiply"
+                      />
+                    )}
+                    <div className="absolute bottom-0 left-0 right-0 bg-[#0A0A0F]/80 px-2 py-1">
+                      <div className="font-['Space_Mono'] text-[9px] text-[#D4A843]/90 uppercase tracking-wider">
+                        AFTER
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
 
             {/* Change Detection Summary - Grid */}
-            <div className="mb-3 grid grid-cols-3 gap-2">
+            <div className="mb-3 grid grid-cols-2 gap-2">
               <div className="p-2 bg-[rgba(212,168,67,0.05)] rounded-[3px] border border-[rgba(212,168,67,0.15)] text-center">
                 <div className="font-['Space_Mono'] text-[8px] text-[#D4A843]/70 uppercase tracking-wider mb-1">
                   Change Detected
@@ -1220,15 +1386,23 @@ function AgentBubble({ message, isActive, onFocus }) {
                   {message.changePercent}%
                 </div>
               </div>
-              <div className="p-2 bg-[rgba(212,168,67,0.05)] rounded-[3px] border border-[rgba(212,168,67,0.15)] text-center">
-                <div className="font-['Space_Mono'] text-[8px] text-[#D4A843]/70 uppercase tracking-wider mb-1">
-                  Confidence
+            </div>
+
+            {/* Change Mask Display */}
+            {message.changeMaskUrl && (
+              <div className="mb-3">
+                <div className="font-['Space_Mono'] text-[9px] text-[#D4A843]/70 uppercase tracking-wider mb-2">
+                  Change Detection Mask
                 </div>
-                <div className="font-['Space_Mono'] text-[12px] text-[#F2EDE6]">
-                  {message.confidence}%
+                <div className="relative h-48 bg-[#14141c] rounded-[3px] border border-[rgba(212,168,67,0.2)] overflow-hidden">
+                  <img
+                    src={message.changeMaskUrl}
+                    alt="Change Mask"
+                    className="w-full h-full object-contain"
+                  />
                 </div>
               </div>
-            </div>
+            )}
 
             {/* Pixel Statistics */}
             {message.apiData.changedPixels !== undefined && (
