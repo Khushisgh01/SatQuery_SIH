@@ -43,15 +43,6 @@ export default function SatQueryChat({ onBack, onOpenProfile }) {
     return MODEL_OPTIONS.some((m) => m.id === saved) ? saved : null;
   });
 
-  // Model 2 (Change Detection) specific parameters
-  const [model2Params, setModel2Params] = useState({
-    latitude: '',
-    longitude: '',
-    before_date: '',
-    after_date: '',
-    max_cloud_cover: 20,
-  });
-
   const draftsRef = useRef({});
   const fileInputRef = useRef(null);
   const viewportRef = useRef(null);
@@ -290,22 +281,15 @@ export default function SatQueryChat({ onBack, onOpenProfile }) {
       setTimeout(() => setNotice(''), 3200);
       return;
     }
-    
-    // Model 2 (Change Detection) requires coordinates and dates, not images
-    if (selectedModel === 'bitcd') {
-      if (!model2Params.latitude || !model2Params.longitude || !model2Params.before_date || !model2Params.after_date) {
-        setNotice('Change detection requires latitude, longitude, before_date, and after_date.');
-        setTimeout(() => setNotice(''), 3200);
-        return;
-      }
-    } else {
-      // Other models require images
-      const modelOpt = MODEL_OPTIONS.find((m) => m.id === selectedModel);
-      if (pendingImages.length < (modelOpt?.images || 1)) {
-        setNotice('Attach an image first.');
-        setTimeout(() => setNotice(''), 3200);
-        return;
-      }
+    const modelOpt = MODEL_OPTIONS.find((m) => m.id === selectedModel);
+    if (pendingImages.length < (modelOpt?.images || 1)) {
+      setNotice(
+        selectedModel === 'bitcd'
+          ? 'Change detection needs two images.'
+          : 'Attach an image first.'
+      );
+      setTimeout(() => setNotice(''), 3200);
+      return;
     }
 
     let sessionId = activeSessionId;
@@ -362,7 +346,7 @@ export default function SatQueryChat({ onBack, onOpenProfile }) {
         })
       : Promise.resolve({ uploadedImages: [] });
 
-    getModelReply(userMessage.text, selectedModel === 'bitcd' ? model2Params : images, selectedModel)
+    getModelReply(userMessage.text, images, selectedModel)
       .then((reply) => {
         const agentMessage = {
           id: uid('msg'),
@@ -582,7 +566,7 @@ export default function SatQueryChat({ onBack, onOpenProfile }) {
                   <p className="text-sm text-[#F2EDE6]/70">
                     {selectedModel
                       ? selectedModel === 'bitcd'
-                        ? 'Enter coordinates and dates for change detection'
+                        ? 'Drop two dated scenes to compare'
                         : 'Drop a satellite scene, then ask your question'
                       : 'Select a model, then drop 1–2 images'}
                   </p>
@@ -592,15 +576,13 @@ export default function SatQueryChat({ onBack, onOpenProfile }) {
                       : 'VQA · Grounding · Change detection'}
                   </p>
                 </div>
-                {selectedModel !== 'bitcd' && (
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    className="font-['Space_Mono'] text-[10px] uppercase tracking-wider px-3 py-1.5 rounded-[4px] border border-[rgba(212,168,67,0.35)] text-[#F2EDE6]/70 hover:text-[#D4A843]"
-                  >
-                    Upload image
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="font-['Space_Mono'] text-[10px] uppercase tracking-wider px-3 py-1.5 rounded-[4px] border border-[rgba(212,168,67,0.35)] text-[#F2EDE6]/70 hover:text-[#D4A843]"
+                >
+                  Upload image
+                </button>
               </div>
             )}
 
@@ -716,120 +698,6 @@ export default function SatQueryChat({ onBack, onOpenProfile }) {
                 Select a model to begin
               </p>
             )}
-
-          {/* Model 2 (Change Detection) Parameters */}
-          {selectedModel === 'bitcd' && (
-            <div className="mt-3 space-y-2">
-              {/* Sample Input Buttons */}
-              <div className="flex gap-2 mb-2">
-                <button
-                  type="button"
-                  onClick={() => setModel2Params({
-                    latitude: '28.6139',
-                    longitude: '77.2090',
-                    before_date: '2020-01-15',
-                    after_date: '2025-01-15',
-                    max_cloud_cover: 20,
-                  })}
-                  className="font-['Space_Mono'] text-[9px] uppercase tracking-wider px-2 py-1 rounded-[3px] border border-[rgba(212,168,67,0.3)] text-[#F2EDE6]/70 hover:text-[#D4A843] hover:border-[#D4A843] transition-colors"
-                >
-                  Delhi Sample
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setModel2Params({
-                    latitude: '28.4089',
-                    longitude: '77.3178',
-                    before_date: '2020-01-15',
-                    after_date: '2025-01-15',
-                    max_cloud_cover: 20,
-                  })}
-                  className="font-['Space_Mono'] text-[9px] uppercase tracking-wider px-2 py-1 rounded-[3px] border border-[rgba(212,168,67,0.3)] text-[#F2EDE6]/70 hover:text-[#D4A843] hover:border-[#D4A843] transition-colors"
-                >
-                  Development Area
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setModel2Params({
-                    latitude: '19.0760',
-                    longitude: '72.8777',
-                    before_date: '2018-06-01',
-                    after_date: '2024-06-01',
-                    max_cloud_cover: 15,
-                  })}
-                  className="font-['Space_Mono'] text-[9px] uppercase tracking-wider px-2 py-1 rounded-[3px] border border-[rgba(212,168,67,0.3)] text-[#F2EDE6]/70 hover:text-[#D4A843] hover:border-[#D4A843] transition-colors"
-                >
-                  Mumbai Sample
-                </button>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block font-['Space_Mono'] text-[9px] text-[#F2EDE6]/50 uppercase tracking-wider mb-1">
-                    Latitude
-                  </label>
-                  <input
-                    type="number"
-                    step="0.0001"
-                    value={model2Params.latitude}
-                    onChange={(e) => setModel2Params({ ...model2Params, latitude: e.target.value })}
-                    placeholder="28.6139"
-                    className="w-full bg-[#14141c] border border-[rgba(212,168,67,0.2)] rounded-[3px] px-2 py-1.5 text-xs text-[#F2EDE6] placeholder:text-[#F2EDE6]/30 outline-none focus:border-[#D4A843]"
-                  />
-                </div>
-                <div>
-                  <label className="block font-['Space_Mono'] text-[9px] text-[#F2EDE6]/50 uppercase tracking-wider mb-1">
-                    Longitude
-                  </label>
-                  <input
-                    type="number"
-                    step="0.0001"
-                    value={model2Params.longitude}
-                    onChange={(e) => setModel2Params({ ...model2Params, longitude: e.target.value })}
-                    placeholder="77.2090"
-                    className="w-full bg-[#14141c] border border-[rgba(212,168,67,0.2)] rounded-[3px] px-2 py-1.5 text-xs text-[#F2EDE6] placeholder:text-[#F2EDE6]/30 outline-none focus:border-[#D4A843]"
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block font-['Space_Mono'] text-[9px] text-[#F2EDE6]/50 uppercase tracking-wider mb-1">
-                    Before Date
-                  </label>
-                  <input
-                    type="date"
-                    value={model2Params.before_date}
-                    onChange={(e) => setModel2Params({ ...model2Params, before_date: e.target.value })}
-                    className="w-full bg-[#14141c] border border-[rgba(212,168,67,0.2)] rounded-[3px] px-2 py-1.5 text-xs text-[#F2EDE6] placeholder:text-[#F2EDE6]/30 outline-none focus:border-[#D4A843]"
-                  />
-                </div>
-                <div>
-                  <label className="block font-['Space_Mono'] text-[9px] text-[#F2EDE6]/50 uppercase tracking-wider mb-1">
-                    After Date
-                  </label>
-                  <input
-                    type="date"
-                    value={model2Params.after_date}
-                    onChange={(e) => setModel2Params({ ...model2Params, after_date: e.target.value })}
-                    className="w-full bg-[#14141c] border border-[rgba(212,168,67,0.2)] rounded-[3px] px-2 py-1.5 text-xs text-[#F2EDE6] placeholder:text-[#F2EDE6]/30 outline-none focus:border-[#D4A843]"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="block font-['Space_Mono'] text-[9px] text-[#F2EDE6]/50 uppercase tracking-wider mb-1">
-                  Max Cloud Cover (%)
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  max="100"
-                  value={model2Params.max_cloud_cover}
-                  onChange={(e) => setModel2Params({ ...model2Params, max_cloud_cover: e.target.value })}
-                  className="w-full bg-[#14141c] border border-[rgba(212,168,67,0.2)] rounded-[3px] px-2 py-1.5 text-xs text-[#F2EDE6] placeholder:text-[#F2EDE6]/30 outline-none focus:border-[#D4A843]"
-                />
-              </div>
-            </div>
-          )}
           </div>
 
           {/* Message list */}
@@ -932,28 +800,24 @@ export default function SatQueryChat({ onBack, onOpenProfile }) {
           {/* Input row */}
           <div className="p-4 border-t border-[rgba(212,168,67,0.15)]">
             <div className="flex items-center gap-2 bg-[#141418] border border-[rgba(212,168,67,0.2)] rounded-[4px] pl-2 pr-1.5 py-1.5 focus-within:border-[rgba(212,168,67,0.5)] transition-colors">
-              {selectedModel !== 'bitcd' && (
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  className="w-7 h-7 flex items-center justify-center text-[#F2EDE6]/50 hover:text-[#D4A843] transition-colors shrink-0"
-                  aria-label="Attach image"
-                >
-                  <IconAttach className="w-4 h-4" />
-                </button>
-              )}
-              {selectedModel !== 'bitcd' && (
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  onChange={(e) => {
-                    addFiles(e.target.files);
-                    e.target.value = '';
-                  }}
-                  className="hidden"
-                />
-              )}
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="w-7 h-7 flex items-center justify-center text-[#F2EDE6]/50 hover:text-[#D4A843] transition-colors shrink-0"
+                aria-label="Attach image"
+              >
+                <IconAttach className="w-4 h-4" />
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={(e) => {
+                  addFiles(e.target.files);
+                  e.target.value = '';
+                }}
+                className="hidden"
+              />
               <input
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
@@ -962,7 +826,7 @@ export default function SatQueryChat({ onBack, onOpenProfile }) {
                   !selectedModel
                     ? 'Select a model first…'
                     : selectedModel === 'bitcd'
-                    ? 'Enter coordinates and dates, then ask about changes…'
+                    ? 'Ask what changed…'
                     : 'Ask about this scene…'
                 }
                 className="flex-1 bg-transparent outline-none text-sm placeholder:text-[#F2EDE6]/30 min-w-0"
@@ -1292,94 +1156,89 @@ function AgentBubble({ message, isActive, onFocus }) {
               </span>
             </div>
 
-            {/* Location */}
-            {message.apiData.location && (
-              <div className="mb-3 p-2 bg-[rgba(212,168,67,0.03)] rounded-[3px] border border-[rgba(212,168,67,0.1)]">
-                <div className="font-['Space_Mono'] text-[9px] text-[#D4A843]/70 uppercase tracking-wider mb-1">
-                  Location
+            {/* Uploaded Images */}
+            {message.images && message.images.length >= 2 && (
+              <div className="mb-3 grid grid-cols-2 gap-2">
+                <div className="relative h-32 bg-[#14141c] rounded-[3px] border border-[rgba(212,168,67,0.2)] overflow-hidden">
+                  <img
+                    src={message.images[0].url}
+                    alt="Before"
+                    className="w-full h-full object-cover"
+                  />
+                  <div className="absolute bottom-0 left-0 right-0 bg-[#0A0A0F]/80 px-2 py-1">
+                    <div className="font-['Space_Mono'] text-[9px] text-[#D4A843]/90 uppercase tracking-wider">
+                      BEFORE
+                    </div>
+                  </div>
                 </div>
-                <div className="font-['Space_Mono'] text-[11px] text-[#F2EDE6]">
-                  {message.apiData.location.latitude.toFixed(4)}° N, {message.apiData.location.longitude.toFixed(4)}° E
+                <div className="relative h-32 bg-[#14141c] rounded-[3px] border border-[rgba(212,168,67,0.2)] overflow-hidden">
+                  <img
+                    src={message.images[1].url}
+                    alt="After"
+                    className="w-full h-full object-cover"
+                  />
+                  <div className="absolute bottom-0 left-0 right-0 bg-[#0A0A0F]/80 px-2 py-1">
+                    <div className="font-['Space_Mono'] text-[9px] text-[#D4A843]/90 uppercase tracking-wider">
+                      AFTER
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
 
-            {/* Image Areas */}
-            <div className="mb-3 grid grid-cols-2 gap-2">
-              <div className="relative h-32 bg-[#14141c] rounded-[3px] border border-[rgba(212,168,67,0.2)] overflow-hidden">
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="text-center">
-                    <div className="font-['Space_Mono'] text-[9px] text-[#D4A843]/70 uppercase tracking-wider mb-1">
-                      BEFORE IMAGE
-                    </div>
-                    <div className="font-['Space_Mono'] text-[10px] text-[#F2EDE6]/50">
-                      {message.apiData.dates?.requested_before || 'N/A'}
-                    </div>
-                    <div className="mt-2 text-[#F2EDE6]/30 text-xs">
-                      [Satellite imagery from coordinates]
-                    </div>
-                  </div>
+            {/* Change Mask Image */}
+            {message.changeMaskUrl && (
+              <div className="mb-3">
+                <div className="font-['Space_Mono'] text-[9px] text-[#D4A843]/70 uppercase tracking-wider mb-2">
+                  Change Detection Mask
+                </div>
+                <div className="relative h-40 bg-[#14141c] rounded-[3px] border border-[rgba(212,168,67,0.2)] overflow-hidden">
+                  <img
+                    src={message.changeMaskUrl}
+                    alt="Change Mask"
+                    className="w-full h-full object-contain"
+                  />
                 </div>
               </div>
-              <div className="relative h-32 bg-[#14141c] rounded-[3px] border border-[rgba(212,168,67,0.2)] overflow-hidden">
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="text-center">
-                    <div className="font-['Space_Mono'] text-[9px] text-[#D4A843]/70 uppercase tracking-wider mb-1">
-                      AFTER IMAGE
-                    </div>
-                    <div className="font-['Space_Mono'] text-[10px] text-[#F2EDE6]/50">
-                      {message.apiData.dates?.requested_after || 'N/A'}
-                    </div>
-                    <div className="mt-2 text-[#F2EDE6]/30 text-xs">
-                      [Satellite imagery from coordinates]
-                    </div>
-                  </div>
+            )}
+
+            {/* Change Detection Summary - Grid */}
+            <div className="mb-3 grid grid-cols-3 gap-2">
+              <div className="p-2 bg-[rgba(212,168,67,0.05)] rounded-[3px] border border-[rgba(212,168,67,0.15)] text-center">
+                <div className="font-['Space_Mono'] text-[8px] text-[#D4A843]/70 uppercase tracking-wider mb-1">
+                  Change Detected
+                </div>
+                <div className={`font-['Space_Mono'] text-[12px] font-bold ${message.changePercent > 0 ? 'text-[#F47216]' : 'text-[#F2EDE6]/50'}`}>
+                  {message.changePercent > 0 ? 'YES' : 'NO'}
+                </div>
+              </div>
+              <div className="p-2 bg-[rgba(212,168,67,0.05)] rounded-[3px] border border-[rgba(212,168,67,0.15)] text-center">
+                <div className="font-['Space_Mono'] text-[8px] text-[#D4A843]/70 uppercase tracking-wider mb-1">
+                  Change Area
+                </div>
+                <div className="font-['Space_Mono'] text-[12px] text-[#F2EDE6]">
+                  {message.changePercent}%
+                </div>
+              </div>
+              <div className="p-2 bg-[rgba(212,168,67,0.05)] rounded-[3px] border border-[rgba(212,168,67,0.15)] text-center">
+                <div className="font-['Space_Mono'] text-[8px] text-[#D4A843]/70 uppercase tracking-wider mb-1">
+                  Confidence
+                </div>
+                <div className="font-['Space_Mono'] text-[12px] text-[#F2EDE6]">
+                  {message.confidence}%
                 </div>
               </div>
             </div>
 
-            {/* Change Detection Summary - Grid */}
-            {message.apiData.changeDetection && (
-              <div className="mb-3 grid grid-cols-3 gap-2">
-                <div className="p-2 bg-[rgba(212,168,67,0.05)] rounded-[3px] border border-[rgba(212,168,67,0.15)] text-center">
-                  <div className="font-['Space_Mono'] text-[8px] text-[#D4A843]/70 uppercase tracking-wider mb-1">
-                    Change Detected
-                  </div>
-                  <div className={`font-['Space_Mono'] text-[12px] font-bold ${message.apiData.changeDetection.change_detected ? 'text-[#F47216]' : 'text-[#F2EDE6]/50'}`}>
-                    {message.apiData.changeDetection.change_detected ? 'YES' : 'NO'}
-                  </div>
-                </div>
-                <div className="p-2 bg-[rgba(212,168,67,0.05)] rounded-[3px] border border-[rgba(212,168,67,0.15)] text-center">
-                  <div className="font-['Space_Mono'] text-[8px] text-[#D4A843]/70 uppercase tracking-wider mb-1">
-                    Change Area
-                  </div>
-                  <div className="font-['Space_Mono'] text-[12px] text-[#F2EDE6]">
-                    {Math.round(message.apiData.changeDetection.change_percentage * 100)}%
-                  </div>
-                </div>
-                <div className="p-2 bg-[rgba(212,168,67,0.05)] rounded-[3px] border border-[rgba(212,168,67,0.15)] text-center">
-                  <div className="font-['Space_Mono'] text-[8px] text-[#D4A843]/70 uppercase tracking-wider mb-1">
-                    Severity
-                  </div>
-                  <div className="font-['Space_Mono'] text-[12px] text-[#F2EDE6]">
-                    {message.apiData.spatialAnalysis?.severity?.toUpperCase() || 'N/A'}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Spatial Analysis */}
-            {message.apiData.spatialAnalysis && (
+            {/* Pixel Statistics */}
+            {message.apiData.changedPixels !== undefined && (
               <div className="mb-3 p-2 bg-[rgba(212,168,67,0.03)] rounded-[3px] border border-[rgba(212,168,67,0.1)]">
                 <div className="font-['Space_Mono'] text-[9px] text-[#D4A843]/70 uppercase tracking-wider mb-2">
-                  Spatial Analysis
+                  Pixel Statistics
                 </div>
                 <div className="grid grid-cols-2 gap-2 font-['Space_Mono'] text-[10px] text-[#F2EDE6]/80">
-                  <div>Changed Pixels: <span className="text-[#F2EDE6]">{message.apiData.changeDetection.changed_pixels.toLocaleString()}</span></div>
-                  <div>Regions: <span className="text-[#F2EDE6]">{message.apiData.spatialAnalysis.number_of_regions ?? 0}</span></div>
-                  {message.apiData.spatialAnalysis.largest_region_pixels !== null && (
-                    <div className="col-span-2">Largest Region: <span className="text-[#F2EDE6]">{message.apiData.spatialAnalysis.largest_region_pixels.toLocaleString()} pixels</span></div>
-                  )}
+                  <div>Changed Pixels: <span className="text-[#F2EDE6]">{message.apiData.changedPixels.toLocaleString()}</span></div>
+                  <div>Total Pixels: <span className="text-[#F2EDE6]">{message.apiData.totalPixels?.toLocaleString() || 'N/A'}</span></div>
                 </div>
               </div>
             )}

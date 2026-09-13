@@ -50,8 +50,8 @@ export const MODEL_OPTIONS = [
   {
     id: 'bitcd',
     name: 'Change detection',
-    hint: 'Compare location across timeframes using coordinates',
-    images: 0,
+    hint: 'Compare two dated scenes',
+    images: 2,
   },
   {
     id: 'fusion',

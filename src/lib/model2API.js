@@ -1,4 +1,4 @@
-const REMOTE_DEFAULT = 'https://sih-satquery.onrender.com';
+const REMOTE_DEFAULT = 'https://8002-gpu-t4-s-kkb-ass1c0-3v2vi2mcxnyuq-c.asia-southeast1-0.prod.colab.dev';
 
 export function model2ApiBase() {
   const env = import.meta.env.VITE_BITCD_API_URL;
@@ -9,58 +9,56 @@ export function model2ApiBase() {
     if (import.meta.env.DEV) return ''; // Use proxy in dev
     return url;
   }
-  // Same-origin proxy in Vite (see vite.config.js) — the Render API has no CORS.
-  if (import.meta.env.DEV) return ''; // Use direct /api path in dev
+  // For Colab API, always use the direct URL (no proxy needed)
   return REMOTE_DEFAULT;
 }
 
 /**
  * Query Model 2 (Change Detection - BIT-CD)
  * 
- * This model performs change detection between two satellite images at the same location
- * but different timeframes using coordinates and dates instead of uploaded images.
+ * This model performs change detection between two satellite images.
+ * It takes two uploaded images (before and after) and returns change detection results
+ * including a change mask image URL.
  * 
- * @param {string} query - The user's question/query (kept for compatibility but not used)
- * @param {Object} params - Object with { latitude, longitude, before_date, after_date, max_cloud_cover }
- * @returns {Promise<Object>} - Response with model, confidence, responseTime, text, changeRegions, changePercent
+ * @param {string} query - The user's question/query
+ * @param {Array} images - Array of image objects with { id, url, file, date } (should be 2 images)
+ * @returns {Promise<Object>} - Response with model, confidence, responseTime, text, changeRegions, changePercent, changeMaskUrl
  */
-export async function queryModel2ChangeDetection(query, params) {
-  const { latitude, longitude, before_date, after_date, max_cloud_cover = 20 } = params || {};
-
-  if (!latitude || !longitude || !before_date || !after_date) {
+export async function queryModel2ChangeDetection(query, images) {
+  if (!images || images.length < 2) {
     return {
       model: 'bitcd',
       confidence: 0,
       responseTime: '0.0',
-      text: 'Change detection requires latitude, longitude, before_date, and after_date.',
+      text: 'Change detection requires two satellite images (Before and After).',
       changeRegions: [],
       changePercent: 0,
     };
   }
 
   const t0 = performance.now();
+  const form = new FormData();
+  
+  // Attach both images for change detection
+  if (images[0]?.file) {
+    form.append('image_before', images[0].file);
+  }
+  if (images[1]?.file) {
+    form.append('image_after', images[1].file);
+  }
+
+  // Add query if provided (for user context)
+  if (query && query.trim()) {
+    form.append('query', query.trim());
+  }
 
   try {
     const baseUrl = model2ApiBase();
-    const endpoint = baseUrl ? `${baseUrl}/api/detect-change` : '/api/detect-change';
-    
-    const requestBody = {
-      latitude: parseFloat(latitude),
-      longitude: parseFloat(longitude),
-      before_date,
-      after_date,
-      max_cloud_cover: parseInt(max_cloud_cover),
-    };
-
-    // Add query if provided (for user context)
-    if (query && query.trim()) {
-      requestBody.query = query.trim();
-    }
+    const endpoint = `${baseUrl}/detect-change`;
     
     const res = await fetch(endpoint, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(requestBody),
+      body: form,
     });
     
     if (!res.ok) throw new Error(`Model 2 request failed (${res.status})`);
@@ -69,33 +67,23 @@ export async function queryModel2ChangeDetection(query, params) {
     const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
 
     // Map the API response to the expected shape
-    // The API returns: { status, location, dates, change_detection, spatial_analysis, explanation }
+    // The API returns: { change_percentage, change_mask_url, description, etc. }
     const changeRegions = [];
     let changePercent = 0;
+    let changeMaskUrl = null;
     
-    // Extract change percentage from the response
-    if (data.change_detection?.change_percentage !== undefined) {
-      changePercent = Math.round(data.change_detection.change_percentage * 100);
-    } else if (data.spatial_analysis?.change_percentage !== undefined) {
-      changePercent = Math.round(data.spatial_analysis.change_percentage * 100);
+    // Extract change percentage
+    if (data.change_percentage !== undefined) {
+      changePercent = Math.round(data.change_percentage * 100);
+    }
+    
+    // Extract change mask URL
+    if (data.change_mask_url) {
+      changeMaskUrl = data.change_mask_url;
     }
     
     // Create change regions if change was detected
-    if (data.change_detection?.change_detected && data.spatial_analysis?.number_of_regions) {
-      for (let i = 0; i < data.spatial_analysis.number_of_regions; i++) {
-        changeRegions.push({
-          id: `chg-${i}`,
-          label: `Change region ${i + 1}`,
-          top: 50, // Default positions since API doesn't provide bounding boxes
-          left: 50,
-          width: 10,
-          height: 10,
-        });
-      }
-    }
-    
-    // If no regions but change detected, add a general region
-    if (data.change_detection?.change_detected && changeRegions.length === 0) {
+    if (changePercent > 0) {
       changeRegions.push({
         id: `chg-0`,
         label: 'Detected changes',
@@ -108,18 +96,18 @@ export async function queryModel2ChangeDetection(query, params) {
 
     return {
       model: 'bitcd',
-      confidence: data.status === 'success' ? 85 : 0,
+      confidence: changePercent > 0 ? 85 : 0,
       responseTime: elapsed,
-      text: data.explanation || `Change detection complete. ${changeRegions.length} change region${changeRegions.length === 1 ? '' : 's'} identified.`,
+      text: data.description || `Change detection complete. ${changePercent}% change detected.`,
       changeRegions,
       changePercent,
+      changeMaskUrl,
       // Include raw API data for detailed display
       apiData: {
-        status: data.status,
-        location: data.location,
-        dates: data.dates,
-        changeDetection: data.change_detection,
-        spatialAnalysis: data.spatial_analysis,
+        changePercentage: data.change_percentage,
+        changedPixels: data.changed_pixels,
+        totalPixels: data.total_pixels,
+        description: data.description,
       },
     };
   } catch (error) {

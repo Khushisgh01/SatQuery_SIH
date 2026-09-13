@@ -123,20 +123,24 @@ export function mockGrounding(query) {
   return withSimulatedLatency(result, [1200, 4400]);
 }
 
-export function mockBitCD(query, params) {
+export function mockBitCD(query, images) {
   const regions = makeChangeRegions();
   const changePercent = randInt(3, 24);
-  const dateA = params?.before_date || 'Before date';
-  const dateB = params?.after_date || 'After date';
   const result = {
     model: 'bitcd',
     confidence: randInt(80, 95),
     responseTime: rand(2.1, 6.5).toFixed(1),
-    text: `${regions[0].label} detected. Change extent increased by ${changePercent}% between ${dateA} and ${dateB}. ${
+    text: `${regions[0].label} detected. Change extent increased by ${changePercent}%. ${
       regions.length
     } distinct change region${regions.length > 1 ? 's' : ''} identified.`,
     changeRegions: regions,
     changePercent,
+    changeMaskUrl: null, // Mock doesn't provide real mask
+    apiData: {
+      changedPixels: randInt(1000, 50000),
+      totalPixels: 1048576,
+      description: result.text,
+    },
   };
   return withSimulatedLatency(result, [2100, 6500]);
 }

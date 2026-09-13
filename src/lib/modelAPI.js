@@ -51,12 +51,12 @@ const FUSION_URL = import.meta.env.VITE_MODEL3_API_URL;
  * has { id, url (blob preview), file (raw File object), date }. Use
  * `.file` to upload the actual bytes to your model's endpoint.
  */
-export async function getModelReply(query, params, selectedModel) {
-  const model = decideModel(query, params, selectedModel);
-  if (model === 'grounding') return callGrounding(query, params);
-  if (model === 'bitcd') return callBitCD(query, params);
-  if (model === 'fusion') return callFusion(query, params);
-  return queryModel1Vqa(query, params);
+export async function getModelReply(query, images, selectedModel) {
+  const model = decideModel(query, images, selectedModel);
+  if (model === 'grounding') return callGrounding(query, images);
+  if (model === 'bitcd') return callBitCD(query, images);
+  if (model === 'fusion') return callFusion(query, images);
+  return queryModel1Vqa(query, images);
 }
 
 /* -------------------------------------------------------------------- */
@@ -105,13 +105,13 @@ async function callGrounding(query, images) {
 /* -------------------------------------------------------------------- */
 /* BIT-CD — change detection between two dated scenes                    */
 /* -------------------------------------------------------------------- */
-async function callBitCD(query, params) {
+async function callBitCD(query, images) {
   if (!BITCD_URL) {
     // Return mock data if Model 2 URL is not configured
-    return mockBitCD(query, params);
+    return mockBitCD(query, images);
   }
 
-  return queryModel2ChangeDetection(query, params);
+  return queryModel2ChangeDetection(query, images);
 }
 
 /* -------------------------------------------------------------------- */
