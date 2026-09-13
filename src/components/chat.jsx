@@ -8,13 +8,14 @@ import {
   saveUserMessage,
   saveAgentMessage,
   saveReport,
+  deleteSession,
 } from '../lib/Sessionsapi';
 import { getModelReply } from '../lib/modelAPI';
 import { MODEL_META } from '../lib/Modelmeta';
 import { generateSessionReport } from '../lib/Reportpdf';
 import { uid, createSession, deriveTitle, isPersistedSessionId, readPersistedUi, persistUi, MODEL_OPTIONS } from '../lib/Sessionhelpers';
 import { model1PlaceholderDataUrl } from '../lib/model1API';
-import { IconCrosshair, IconAttach, IconSend, IconClose, IconImage, IconMenu } from './icons';
+import { IconCrosshair, IconAttach, IconSend, IconClose, IconImage, IconMenu, IconTrash } from './icons';
 
 /* ------------------------------------------------------------------ */
 /* Main component                                                      */
@@ -77,7 +78,8 @@ export default function SatQueryChat({ onBack, onOpenProfile }) {
             setSessions([{ id: created.id, title: created.title, messages: [] }]);
             setActiveSessionId(created.id);
             persistUi({ activeSessionId: created.id, userId: user.id });
-          } catch {
+          } catch (createErr) {
+            console.error('createSessionRow failed:', createErr);
             if (cancelled) return;
             const local = createSession();
             setSessions([local]);
@@ -91,7 +93,8 @@ export default function SatQueryChat({ onBack, onOpenProfile }) {
           let history = [];
           try {
             history = await fetchSessionMessages(openId);
-          } catch {
+          } catch (fetchErr) {
+            console.error('fetchSessionMessages failed:', fetchErr);
             setNotice('Could not load older messages \u2014 you can still send a new query.');
           }
           if (cancelled) return;
@@ -231,6 +234,34 @@ export default function SatQueryChat({ onBack, onOpenProfile }) {
       setActiveSessionId(local.id);
       setNotice('Started a local chat \u2014 it will not sync to the cloud.');
       setTimeout(() => setNotice(''), 4200);
+    }
+  };
+
+  const handleDeleteSession = async (id, e) => {
+    e.stopPropagation(); // don't trigger the row's onSelect
+    if (!window.confirm('Delete this chat? This cannot be undone.')) return;
+
+    const wasActive = id === activeSessionId;
+    delete draftsRef.current[id];
+    const remaining = sessions.filter((s) => s.id !== id);
+    setSessions(remaining);
+
+    if (wasActive) {
+      if (remaining.length) {
+        switchSession(remaining[0].id);
+      } else {
+        startNewSession();
+      }
+    }
+
+    if (isPersistedSessionId(id)) {
+      try {
+        await deleteSession(id, user.id);
+      } catch (deleteErr) {
+        console.error('deleteSession failed:', deleteErr);
+        setNotice('Could not delete that chat from the cloud \u2014 it may reappear on reload.');
+        setTimeout(() => setNotice(''), 4200);
+      }
     }
   };
 
@@ -399,7 +430,7 @@ export default function SatQueryChat({ onBack, onOpenProfile }) {
     };
     const userSequence = (activeSession.messages || []).length;
     const nextTitle = wasNewSession
-      ? (selectedModel === 'fusion' ? 'Optical+SAR Fusion' : deriveTitle(userMessage.text))
+      ? deriveTitle(userMessage.text, MODEL_META[selectedModel]?.name || 'New session')
       : activeSession.title;
 
     setSessions((prev) => {
@@ -580,6 +611,7 @@ export default function SatQueryChat({ onBack, onOpenProfile }) {
         activeSessionId={activeSessionId}
         onSelect={switchSession}
         onNewChat={startNewSession}
+        onDelete={handleDeleteSession}
         isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}
         displayName={displayName}
@@ -1147,6 +1179,7 @@ function SessionSidebar({
   activeSessionId,
   onSelect,
   onNewChat,
+  onDelete,
   isOpen,
   onClose,
   displayName,
@@ -1189,26 +1222,38 @@ function SessionSidebar({
           {sessions.map((s) => {
             const active = s.id === activeSessionId;
             return (
-              <button
+              <div
                 key={s.id}
-                onClick={() => onSelect(s.id)}
-                className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-[4px] text-left transition-colors ${
+                className={`group w-full flex items-center gap-1 rounded-[4px] transition-colors ${
                   active ? 'bg-[rgba(212,168,67,0.08)]' : 'hover:bg-[#141418]'
                 }`}
               >
-                <span
-                  className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                    active ? 'bg-[#F47216]' : 'border border-[#F2EDE6]/25'
-                  }`}
-                />
-                <span
-                  className={`text-[13px] truncate ${
-                    active ? 'text-[#F2EDE6] font-medium' : 'text-[#F2EDE6]/55'
-                  }`}
+                <button
+                  onClick={() => onSelect(s.id)}
+                  className="flex-1 min-w-0 flex items-center gap-2.5 px-2.5 py-2 text-left"
                 >
-                  {s.title}
-                </span>
-              </button>
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                      active ? 'bg-[#F47216]' : 'border border-[#F2EDE6]/25'
+                    }`}
+                  />
+                  <span
+                    className={`text-[13px] truncate ${
+                      active ? 'text-[#F2EDE6] font-medium' : 'text-[#F2EDE6]/55'
+                    }`}
+                  >
+                    {s.title?.trim() || 'Untitled session'}
+                  </span>
+                </button>
+                <button
+                  onClick={(e) => onDelete(s.id, e)}
+                  aria-label="Delete session"
+                  title="Delete session"
+                  className="shrink-0 w-6 h-6 mr-1 flex items-center justify-center rounded text-[#F2EDE6]/30 opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-[#F47216] hover:bg-[rgba(244,114,22,0.1)] transition-all"
+                >
+                  <IconTrash className="w-3.5 h-3.5" />
+                </button>
+              </div>
             );
           })}
         </div>

@@ -11,8 +11,15 @@ export function isPersistedSessionId(id) {
   return typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
 }
 
-export function deriveTitle(text) {
-  const clean = text.trim().replace(/\s+/g, ' ');
+// Turns a message's text into a short sidebar title. Some models (e.g.
+// bitcd, which sends '' as `text` on purpose — see chat.jsx) never have
+// a typed query, so `text` can legitimately be empty. In that case we
+// fall back to `fallback` instead of returning '' — an empty title is
+// what caused the blank/untitled sidebar entries, and it gets written
+// to Supabase permanently the moment the session is created.
+export function deriveTitle(text, fallback = 'New session') {
+  const clean = (text || '').trim().replace(/\s+/g, ' ');
+  if (!clean) return fallback;
   return clean.length > 34 ? `${clean.slice(0, 34)}…` : clean;
 }
 
@@ -36,18 +43,6 @@ export function persistUi(patch) {
 
 export const MODEL_OPTIONS = [
   {
-    id: 'geochat',
-    name: 'VQA',
-    hint: 'Ask a question about one scene',
-    images: 1,
-  },
-  {
-    id: 'grounding',
-    name: 'Grounding',
-    hint: 'Locate objects in one scene',
-    images: 1,
-  },
-  {
     id: 'bitcd',
     name: 'Change detection',
     hint: 'Compare two dated scenes',
@@ -58,5 +53,11 @@ export const MODEL_OPTIONS = [
     name: 'Optical+SAR Fusion',
     hint: 'Enter latitude, longitude and date — no image needed',
     images: 0,
+  },
+  {
+    id: 'geochat',
+    name: 'VQA',
+    hint: 'Ask a question about one scene',
+    images: 1,
   },
 ];

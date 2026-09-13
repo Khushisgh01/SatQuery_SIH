@@ -6,7 +6,7 @@ export function model2ApiBase() {
     const url = String(env).replace(/\/$/, '');
     // If it's the full URL, return it as is; if it's a proxy path, return empty for dev
     if (url.startsWith('http')) return url;
-    if (import.meta.meta.env.DEV) return ''; // Use proxy in dev
+    if (import.meta.env.DEV) return ''; // Use proxy in dev
     return url;
   }
   // For sih-satquery.onrender.com, use proxy in dev to handle CORS
@@ -42,10 +42,16 @@ export async function queryModel2ChangeDetection(query, images) {
   
   // Attach both images for change detection
   if (images[0]?.file) {
+    console.log('Adding before_image:', images[0].file.name, images[0].file.type, images[0].file.size);
     form.append('before_image', images[0].file);
+  } else {
+    console.warn('No before_image file found');
   }
   if (images[1]?.file) {
+    console.log('Adding after_image:', images[1].file.name, images[1].file.type, images[1].file.size);
     form.append('after_image', images[1].file);
+  } else {
+    console.warn('No after_image file found');
   }
 
   // No query parameter - only images are sent
@@ -54,12 +60,19 @@ export async function queryModel2ChangeDetection(query, images) {
     const baseUrl = model2ApiBase();
     const endpoint = baseUrl ? `${baseUrl}/api/detect-change` : '/api/detect-change';
     
+    console.log('Calling Model 2 API endpoint:', endpoint);
+    console.log('Form data entries:', Array.from(form.entries()).map(e => e[0]));
+    
     const res = await fetch(endpoint, {
       method: 'POST',
       body: form,
     });
     
-    if (!res.ok) throw new Error(`Model 2 request failed (${res.status})`);
+    if (!res.ok) {
+      const errorText = await res.text();
+      console.error('Model 2 API error response:', errorText);
+      throw new Error(`Model 2 request failed (${res.status}): ${errorText}`);
+    }
     
     const data = await res.json();
     const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
@@ -188,6 +201,7 @@ export async function queryModel2ChangeDetection(query, images) {
     };
   } catch (error) {
     console.error('Model 2 API error:', error);
+    const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
     return {
       model: 'bitcd',
       responseTime: elapsed,
