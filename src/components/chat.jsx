@@ -32,6 +32,10 @@ export default function SatQueryChat({ onBack, onOpenProfile }) {
   const [pendingImages, setPendingImages] = useState([]);
   const [beforeImage, setBeforeImage] = useState(() => readPersistedUi().beforeImage || null);
   const [afterImage, setAfterImage] = useState(() => readPersistedUi().afterImage || null);
+  // Model 3 (Optical+SAR Fusion) input — no images, just a point + date.
+  const [latitude, setLatitude] = useState(() => readPersistedUi().latitude || '');
+  const [longitude, setLongitude] = useState(() => readPersistedUi().longitude || '');
+  const [fusionDate, setFusionDate] = useState(() => readPersistedUi().fusionDate || '');
   const [isThinking, setIsThinking] = useState(false);
   const [activeMessageId, setActiveMessageId] = useState(null);
   const [selectedDetectionId, setSelectedDetectionId] = useState(null);
@@ -130,8 +134,21 @@ export default function SatQueryChat({ onBack, onOpenProfile }) {
       inputText,
       beforeImage,
       afterImage,
+      latitude,
+      longitude,
+      fusionDate,
     });
-  }, [selectedModel, activeSessionId, user?.id, inputText, beforeImage, afterImage]);
+  }, [
+    selectedModel,
+    activeSessionId,
+    user?.id,
+    inputText,
+    beforeImage,
+    afterImage,
+    latitude,
+    longitude,
+    fusionDate,
+  ]);
 
   const activeSession = sessions.find((s) => s.id === activeSessionId) || sessions[0] || createSession();
   const messages = activeSession.messages || [];
@@ -146,6 +163,9 @@ export default function SatQueryChat({ onBack, onOpenProfile }) {
     setPendingImages([]);
     setBeforeImage(null);
     setAfterImage(null);
+    setLatitude('');
+    setLongitude('');
+    setFusionDate('');
     setNotice('');
     setInputText('');
     setIsDragOver(false);
@@ -158,6 +178,9 @@ export default function SatQueryChat({ onBack, onOpenProfile }) {
       pendingImages,
       beforeImage,
       afterImage,
+      latitude,
+      longitude,
+      fusionDate,
       selectedModel,
       activeMessageId,
       selectedDetectionId,
@@ -173,6 +196,9 @@ export default function SatQueryChat({ onBack, onOpenProfile }) {
       setPendingImages(draft.pendingImages);
       setBeforeImage(draft.beforeImage || null);
       setAfterImage(draft.afterImage || null);
+      setLatitude(draft.latitude || '');
+      setLongitude(draft.longitude || '');
+      setFusionDate(draft.fusionDate || '');
       setSelectedModel(draft.selectedModel);
       setActiveMessageId(draft.activeMessageId);
       setSelectedDetectionId(draft.selectedDetectionId);
@@ -284,21 +310,49 @@ export default function SatQueryChat({ onBack, onOpenProfile }) {
 
   const handleSend = () => {
     const text = inputText.trim();
-    // Allow Model 2 to work with images only (no text required)
-    if (!text && pendingImages.length === 0 && selectedModel !== 'bitcd') return;
+    // Model 2 (images only) and Model 3 (lat/lon/date only) don't need typed text.
+    if (!text && pendingImages.length === 0 && selectedModel !== 'bitcd' && selectedModel !== 'fusion') return;
     if (isThinking) return;
     if (!selectedModel) {
       setNotice('Select a model before sending a query.');
       setTimeout(() => setNotice(''), 3200);
       return;
     }
-    
+
+    /* ---- Model 3 (Optical+SAR Fusion): validate latitude/longitude/date ---- */
+    let fusionInput = null;
+    if (selectedModel === 'fusion') {
+      const cleanLatitude = latitude.trim();
+      const cleanLongitude = longitude.trim();
+      const cleanDate = fusionDate.trim();
+
+      if (!cleanLatitude || !cleanLongitude || !cleanDate) {
+        setNotice('Enter latitude, longitude and date for fusion analysis.');
+        setTimeout(() => setNotice(''), 3200);
+        return;
+      }
+      if (Number.isNaN(Number(cleanLatitude)) || Number.isNaN(Number(cleanLongitude))) {
+        setNotice('Latitude and longitude must be numbers.');
+        setTimeout(() => setNotice(''), 3200);
+        return;
+      }
+      const isDdMmYyyy = /^\d{2}-\d{2}-\d{4}$/.test(cleanDate);
+      const isIso = /^\d{4}-\d{2}-\d{2}$/.test(cleanDate);
+      if (!isDdMmYyyy && !isIso) {
+        setNotice('Date must be DD-MM-YYYY or YYYY-MM-DD.');
+        setTimeout(() => setNotice(''), 3200);
+        return;
+      }
+      fusionInput = { latitude: cleanLatitude, longitude: cleanLongitude, date: cleanDate };
+    }
+
     const modelOpt = MODEL_OPTIONS.find((m) => m.id === selectedModel);
     const imageCount = selectedModel === 'bitcd' 
       ? (beforeImage && afterImage ? 2 : 0)
       : pendingImages.length;
-      
-    if (imageCount < (modelOpt?.images || 1)) {
+
+    // Fusion doesn't use images at all — skip the image-count gate for it.
+    if (selectedModel !== 'fusion' && imageCount < (modelOpt?.images ?? 1)) {
       setNotice(
         selectedModel === 'bitcd'
           ? 'Change detection needs two images (Before and After).'
@@ -307,8 +361,8 @@ export default function SatQueryChat({ onBack, onOpenProfile }) {
       setTimeout(() => setNotice(''), 3200);
       return;
     }
-    // For Model 2, no text query is needed - only images
-    const finalText = text || (selectedModel === 'bitcd' ? '' : '');
+    // For Model 2 and Model 3, no typed text query is needed.
+    const finalText = text || (selectedModel === 'bitcd' || selectedModel === 'fusion' ? '' : '');
     
     let sessionId = activeSessionId;
     if (!sessionId) {
@@ -317,20 +371,36 @@ export default function SatQueryChat({ onBack, onOpenProfile }) {
       setActiveSessionId(sessionId);
     }
     
-    // Use separate before/after images for Model 2, otherwise use pendingImages
+    // Before/after images for Model 2, no images for Model 3, otherwise pendingImages
     const images = selectedModel === 'bitcd' 
       ? (beforeImage && afterImage ? [beforeImage, afterImage] : pendingImages)
+      : selectedModel === 'fusion'
+      ? []
       : pendingImages;
-      
+
+    // A human-readable line standing in for "the query" on fusion turns,
+    // since there's no query text or image thumbnail to show instead.
+    const fusionSummary = fusionInput
+      ? `LAT ${fusionInput.latitude} \u00b7 LON ${fusionInput.longitude} \u00b7 ${fusionInput.date}`
+      : '';
+
     const wasNewSession = activeSession.title === 'New session';
     const userMessage = {
       id: uid('msg'),
       role: 'user',
-      text: finalText || (selectedModel === 'bitcd' ? '' : (images.length > 1 ? 'Compare these two scenes.' : 'Analyze this scene.')),
+      text:
+        selectedModel === 'fusion'
+          ? fusionSummary
+          : finalText || (selectedModel === 'bitcd' ? '' : (images.length > 1 ? 'Compare these two scenes.' : 'Analyze this scene.')),
       images,
+      ...(fusionInput
+        ? { latitude: fusionInput.latitude, longitude: fusionInput.longitude, date: fusionInput.date }
+        : {}),
     };
     const userSequence = (activeSession.messages || []).length;
-    const nextTitle = wasNewSession ? deriveTitle(userMessage.text) : activeSession.title;
+    const nextTitle = wasNewSession
+      ? (selectedModel === 'fusion' ? 'Optical+SAR Fusion' : deriveTitle(userMessage.text))
+      : activeSession.title;
 
     setSessions((prev) => {
       const found = prev.some((s) => s.id === sessionId);
@@ -353,6 +423,11 @@ export default function SatQueryChat({ onBack, onOpenProfile }) {
       setBeforeImage(null);
       setAfterImage(null);
     }
+    if (selectedModel === 'fusion') {
+      setLatitude('');
+      setLongitude('');
+      setFusionDate('');
+    }
     setIsThinking(true);
 
     const canPersist = isPersistedSessionId(sessionId);
@@ -373,7 +448,7 @@ export default function SatQueryChat({ onBack, onOpenProfile }) {
         })
       : Promise.resolve({ uploadedImages: [] });
 
-    getModelReply(finalText, images, selectedModel)
+    getModelReply(finalText, images, selectedModel, fusionInput)
       .then((reply) => {
         const agentMessage = {
           id: uid('msg'),
@@ -715,6 +790,38 @@ export default function SatQueryChat({ onBack, onOpenProfile }) {
                   )}
                 </div>
               </div>
+            ) : selectedModel === 'fusion' ? (
+              <div className="absolute inset-4 rounded-[4px] border border-dashed border-[rgba(212,168,67,0.25)] flex flex-col items-center justify-center gap-4 px-6">
+                <IconCrosshair className="w-7 h-7 text-[#D4A843]/60" />
+                <div className="text-center">
+                  <p className="text-sm text-[#F2EDE6]/70">Optical+SAR Fusion</p>
+                  <p className="mt-1.5 font-['Space_Mono'] text-[10px] text-[#F2EDE6]/40 uppercase tracking-wider">
+                    No image needed — enter a point and date
+                  </p>
+                </div>
+                <div className="w-full max-w-[260px] space-y-2">
+                  <input
+                    value={latitude}
+                    onChange={(e) => setLatitude(e.target.value)}
+                    placeholder="Latitude, e.g. 28.6139"
+                    inputMode="decimal"
+                    className="w-full bg-[#141418] border border-[rgba(212,168,67,0.25)] rounded-[3px] px-2.5 py-1.5 text-xs text-[#F2EDE6] outline-none focus:border-[rgba(212,168,67,0.6)] placeholder:text-[#F2EDE6]/25"
+                  />
+                  <input
+                    value={longitude}
+                    onChange={(e) => setLongitude(e.target.value)}
+                    placeholder="Longitude, e.g. 77.2090"
+                    inputMode="decimal"
+                    className="w-full bg-[#141418] border border-[rgba(212,168,67,0.25)] rounded-[3px] px-2.5 py-1.5 text-xs text-[#F2EDE6] outline-none focus:border-[rgba(212,168,67,0.6)] placeholder:text-[#F2EDE6]/25"
+                  />
+                  <input
+                    value={fusionDate}
+                    onChange={(e) => setFusionDate(e.target.value)}
+                    placeholder="Date, DD-MM-YYYY"
+                    className="w-full bg-[#141418] border border-[rgba(212,168,67,0.25)] rounded-[3px] px-2.5 py-1.5 text-xs text-[#F2EDE6] outline-none focus:border-[rgba(212,168,67,0.6)] placeholder:text-[#F2EDE6]/25"
+                  />
+                </div>
+              </div>
             ) : pendingImages.length > 0 ? (
               <PendingStage images={pendingImages} />
             ) : (
@@ -735,7 +842,7 @@ export default function SatQueryChat({ onBack, onOpenProfile }) {
                   <p className="mt-1.5 font-['Space_Mono'] text-[10px] text-[#F2EDE6]/40 uppercase tracking-wider">
                     {selectedModel
                       ? MODEL_OPTIONS.find((m) => m.id === selectedModel)?.hint
-                      : 'VQA · Grounding · Change detection'}
+                      : 'VQA · Grounding · Change detection · Fusion'}
                   </p>
                 </div>
                 <button
@@ -782,7 +889,7 @@ export default function SatQueryChat({ onBack, onOpenProfile }) {
             </div>
           )}
 
-          {/* Fusion results chips */}
+          {/* Fusion results chips — top strip: label + per-class confidence, kept distinct from the detail card below */}
           {activeMessage?.fusionResults && (
             <div className="px-4 py-2.5 border-t border-[rgba(212,168,67,0.15)] flex flex-wrap gap-2">
               {activeMessage.fusionResults.map((f) => (
@@ -791,7 +898,7 @@ export default function SatQueryChat({ onBack, onOpenProfile }) {
                   className={`font-['Space_Mono'] text-[10px] px-2.5 py-1 rounded-[3px] border flex items-center gap-1.5 transition-colors border-[rgba(212,168,67,0.2)] text-[#F2EDE6]/60`}
                 >
                   <span className="w-1.5 h-1.5 rounded-full bg-[#F2EDE6]/30" />
-                  {f.label}
+                  {f.label} · {f.confidence}%
                 </button>
               ))}
             </div>
@@ -964,7 +1071,12 @@ export default function SatQueryChat({ onBack, onOpenProfile }) {
             <div className="flex items-center gap-2 bg-[#141418] border border-[rgba(212,168,67,0.2)] rounded-[4px] pl-2 pr-1.5 py-1.5 focus-within:border-[rgba(212,168,67,0.5)] transition-colors">
               <button
                 onClick={() => fileInputRef.current?.click()}
-                className="w-7 h-7 flex items-center justify-center text-[#F2EDE6]/50 hover:text-[#D4A843] transition-colors shrink-0"
+                disabled={selectedModel === 'fusion'}
+                className={`w-7 h-7 flex items-center justify-center transition-colors shrink-0 ${
+                  selectedModel === 'fusion'
+                    ? 'text-[#F2EDE6]/15 cursor-not-allowed'
+                    : 'text-[#F2EDE6]/50 hover:text-[#D4A843]'
+                }`}
                 aria-label="Attach image"
               >
                 <IconAttach className="w-4 h-4" />
@@ -989,6 +1101,8 @@ export default function SatQueryChat({ onBack, onOpenProfile }) {
                     ? 'Select a model first…'
                     : selectedModel === 'bitcd'
                     ? 'Upload two images and send (no text needed)'
+                    : selectedModel === 'fusion'
+                    ? 'Enter latitude/longitude/date above, then send'
                     : 'Ask about this scene…'
                 }
                 className="flex-1 bg-transparent outline-none text-sm placeholder:text-[#F2EDE6]/30 min-w-0"
@@ -998,8 +1112,12 @@ export default function SatQueryChat({ onBack, onOpenProfile }) {
                 disabled={
                   isThinking ||
                   !selectedModel ||
-                  (selectedModel !== 'bitcd' && !inputText.trim() && pendingImages.length === 0) ||
-                  (selectedModel === 'bitcd' && (!beforeImage || !afterImage))
+                  (selectedModel !== 'bitcd' &&
+                    selectedModel !== 'fusion' &&
+                    !inputText.trim() &&
+                    pendingImages.length === 0) ||
+                  (selectedModel === 'bitcd' && (!beforeImage || !afterImage)) ||
+                  (selectedModel === 'fusion' && (!latitude.trim() || !longitude.trim() || !fusionDate.trim()))
                 }
                 className="w-8 h-8 rounded-[3px] bg-[#F47216] disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center text-[#F2EDE6] shrink-0 transition-opacity"
                 aria-label="Send"
@@ -1272,6 +1390,13 @@ function UserBubble({ message, onViewImages }) {
 }
 
 function AgentBubble({ message, isActive, onFocus }) {
+  // Fusion turns get their own dedicated block so the primary prediction
+  // and its confidence score are visually separate fields, not one merged
+  // sentence — mirrors the orange-bordered result card in the design.
+  const isFusion = message.model === 'fusion' && Array.isArray(message.fusionResults) && message.fusionResults.length > 0;
+  const primaryClass = message.primaryClass || message.fusionResults?.[0]?.label || 'Unknown';
+  const primaryConfidence = message.primaryConfidence ?? message.confidence ?? 0;
+
   return (
     <div className="flex justify-start">
       <div
@@ -1282,8 +1407,9 @@ function AgentBubble({ message, isActive, onFocus }) {
             : 'border-[rgba(212,168,67,0.12)]'
         }`}
       >
-        <p className="text-sm text-[#F2EDE6] leading-relaxed">{message.text}</p>
-        {message.evidence && (
+        {/* Non-fusion models keep the original single-line text + evidence */}
+        {!isFusion && <p className="text-sm text-[#F2EDE6] leading-relaxed">{message.text}</p>}
+        {!isFusion && message.evidence && (
           <p className="mt-2 font-['Space_Mono'] text-[10px] text-[#D4A843]/70 leading-snug">
             {message.evidence}
           </p>
@@ -1429,7 +1555,58 @@ function AgentBubble({ message, isActive, onFocus }) {
           </div>
         )}
 
-        {message.fusionResults && (
+        {/* Optical+SAR Fusion — Primary Prediction and Confidence Score as
+            distinct fields, plus the full ranked class list underneath. */}
+        {isFusion && (
+          <div className="mt-1 rounded-[4px] border border-[rgba(212,168,67,0.35)] bg-[rgba(212,168,67,0.04)] px-3 py-3">
+            <div className="font-['Space_Mono'] text-[9px] text-[#D4A843]/70 uppercase tracking-wider mb-2">
+              Optical+SAR Fusion Result
+            </div>
+
+            {/* Primary prediction — its own row */}
+            <div className="mb-1.5">
+              <div className="font-['Space_Mono'] text-[9px] text-[#F2EDE6]/40 uppercase tracking-wider">
+                Primary Prediction
+              </div>
+              <div className="text-sm text-[#F2EDE6] font-medium mt-0.5">
+                {primaryClass}
+              </div>
+            </div>
+
+            {/* Confidence score — its own row, separate from the label above */}
+            <div className="mb-2.5">
+              <div className="font-['Space_Mono'] text-[9px] text-[#F2EDE6]/40 uppercase tracking-wider">
+                Confidence Score
+              </div>
+              <div className="flex items-center gap-2 mt-0.5">
+                <span className="font-['Space_Mono'] text-[13px] text-[#D4A843] font-bold">
+                  {primaryConfidence}%
+                </span>
+                <div className="flex-1 h-1 rounded-full bg-[rgba(212,168,67,0.15)] overflow-hidden">
+                  <div
+                    className="h-full bg-[#D4A843]"
+                    style={{ width: `${Math.min(100, Math.max(0, primaryConfidence))}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Ranked class list */}
+            <ul className="space-y-1 pt-2 border-t border-[rgba(212,168,67,0.15)]">
+              {message.fusionResults.map((f, i) => (
+                <li
+                  key={f.id}
+                  className="font-['Space_Mono'] text-[10px] text-[#F2EDE6]/60 flex justify-between"
+                >
+                  <span>{i + 1}. {f.label}</span>
+                  <span className="text-[#F2EDE6]/40">{f.confidence}%</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {!isFusion && message.fusionResults && (
           <ul className="mt-2 space-y-1">
             {message.fusionResults.map((f, i) => (
               <li key={f.id} className="font-['Space_Mono'] text-[10px] text-[#F2EDE6]/60">
@@ -1440,14 +1617,25 @@ function AgentBubble({ message, isActive, onFocus }) {
           </ul>
         )}
 
-        <div className="mt-2.5 flex items-center gap-2 flex-wrap">
-          <span className="font-['Space_Mono'] text-[10px] text-[#D4A843] border border-[rgba(212,168,67,0.35)] rounded-[3px] px-1.5 py-0.5">
-            {message.confidence}%
-          </span>
-          <span className="font-['Space_Mono'] text-[10px] text-[#F2EDE6]/35">
-            {MODEL_META[message.model]?.name} · {message.responseTime}s
-          </span>
-        </div>
+        {/* Bottom meta row — skipped for fusion since confidence is already
+            shown prominently above; keep it for every other model. */}
+        {!isFusion && (
+          <div className="mt-2.5 flex items-center gap-2 flex-wrap">
+            <span className="font-['Space_Mono'] text-[10px] text-[#D4A843] border border-[rgba(212,168,67,0.35)] rounded-[3px] px-1.5 py-0.5">
+              {message.confidence}%
+            </span>
+            <span className="font-['Space_Mono'] text-[10px] text-[#F2EDE6]/35">
+              {MODEL_META[message.model]?.name} · {message.responseTime}s
+            </span>
+          </div>
+        )}
+        {isFusion && (
+          <div className="mt-2.5 flex items-center gap-2 flex-wrap">
+            <span className="font-['Space_Mono'] text-[10px] text-[#F2EDE6]/35">
+              {MODEL_META[message.model]?.name} · {message.responseTime}s
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );

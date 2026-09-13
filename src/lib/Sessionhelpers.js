@@ -56,7 +56,7 @@ export const MODEL_OPTIONS = [
   {
     id: 'fusion',
     name: 'Optical+SAR Fusion',
-    hint: 'Fuse optical and SAR data for enhanced analysis',
-    images: 1,
+    hint: 'Enter latitude, longitude and date — no image needed',
+    images: 0,
   },
 ];

@@ -21,7 +21,6 @@ import { queryModel3Fusion } from './model3API';
 
 const GROUNDING_URL = import.meta.env.VITE_GROUNDING_API_URL;
 const BITCD_URL = import.meta.env.VITE_BITCD_API_URL;
-const FUSION_URL = import.meta.env.VITE_MODEL3_API_URL;
 
 /**
  * Routes a query to the right model and returns its reply in the
@@ -46,16 +45,20 @@ const FUSION_URL = import.meta.env.VITE_MODEL3_API_URL;
  *   changePercent number 0-100, the bitcd model's overall "extent changed" stat
  *   fusionResults [{ id, label, confidence, area, ... }] — fusion analysis results
  *
- * For bitcd (Model 2), `params` is an object with { latitude, longitude, before_date, after_date, max_cloud_cover }
- * For other models, `params` is the array of pending images from chat state — each item
+ * For bitcd (Model 2), `images` is the array of pending images from chat state — each item
  * has { id, url (blob preview), file (raw File object), date }. Use
  * `.file` to upload the actual bytes to your model's endpoint.
+ *
+ * For fusion (Model 3), there are NO images. It takes `fusionInput`, an
+ * object of { latitude, longitude, date } collected from the chat UI's
+ * lat/lon/date fields (see chat.jsx) and fetches optical+SAR data for
+ * that point server-side.
  */
-export async function getModelReply(query, images, selectedModel) {
+export async function getModelReply(query, images, selectedModel, fusionInput) {
   const model = decideModel(query, images, selectedModel);
   if (model === 'grounding') return callGrounding(query, images);
   if (model === 'bitcd') return callBitCD(query, images);
-  if (model === 'fusion') return callFusion(query, images);
+  if (model === 'fusion') return callFusion(fusionInput);
   return queryModel1Vqa(query, images);
 }
 
@@ -115,19 +118,22 @@ async function callBitCD(query, images) {
 }
 
 /* -------------------------------------------------------------------- */
-/* Fusion — Optical+SAR data fusion for enhanced analysis               */
+/* Fusion — Optical+SAR data fusion for a lat/lon/date point             */
 /* -------------------------------------------------------------------- */
-async function callFusion(query, images) {
-  if (!FUSION_URL) {
-    // Return mock data if Model 3 URL is not configured
+async function callFusion(fusionInput) {
+  // Unlike grounding/bitcd, Model 3 always has a live endpoint to call
+  // (model3ApiBase() in model3API.js falls back to the Vite dev proxy in
+  // dev, or the public Render URL in prod — see vite.config.js) so there
+  // is no "not configured" mock path here.
+  if (!fusionInput) {
     return {
       model: 'fusion',
       confidence: 0,
       responseTime: '0.0',
-      text: 'Model 3 (Optical+SAR Fusion) is not configured. Please set VITE_MODEL3_API_URL environment variable.',
+      text: 'Enter latitude, longitude and date for fusion analysis.',
       fusionResults: [],
     };
   }
 
-  return queryModel3Fusion(query, images);
+  return queryModel3Fusion(fusionInput);
 }
