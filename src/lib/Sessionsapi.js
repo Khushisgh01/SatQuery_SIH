@@ -27,7 +27,7 @@ export async function fetchSessionMessages(sessionId) {
   const { data: rows, error } = await supabase
     .from('messages')
     .select(
-      `id, role, model, body_text, sequence, confidence, response_time_s, change_percent,
+      `id, role, model, body_text, sequence, confidence, response_time_s, change_percent, change_mask_url,
        message_images ( id, storage_path, capture_date, sequence ),
        detections ( id, label, confidence, area_km2, bbox ),
        change_regions ( id, label, bbox )`
@@ -55,6 +55,7 @@ export async function fetchSessionMessages(sessionId) {
       confidence: r.confidence,
       responseTime: r.response_time_s != null ? String(r.response_time_s) : undefined,
       changePercent: r.change_percent ?? undefined,
+      changeMaskUrl: r.change_mask_url ?? undefined,
       detections: r.detections?.length
         ? r.detections.map((d) => ({
             id: d.id,
@@ -162,6 +163,7 @@ export async function saveAgentMessage({ sessionId, sequence, reply, uploadedIma
       confidence: reply.confidence,
       response_time_s: reply.responseTime,
       change_percent: reply.changePercent ?? null,
+      change_mask_url: reply.changeMaskUrl ?? null,
     })
     .select('id')
     .single();

@@ -115,8 +115,9 @@ export async function generateSessionReport(session, generatedBy) {
 
   const userTurns = session.messages.filter((m) => m.role === 'user').length;
   const agentTurns = session.messages.filter((m) => m.role === 'agent');
-  const avgConfidence = agentTurns.length
-    ? Math.round(agentTurns.reduce((sum, m) => sum + m.confidence, 0) / agentTurns.length)
+  const agentTurnsWithConfidence = agentTurns.filter((m) => m.confidence !== undefined && m.confidence !== null);
+  const avgConfidence = agentTurnsWithConfidence.length
+    ? Math.round(agentTurnsWithConfidence.reduce((sum, m) => sum + m.confidence, 0) / agentTurnsWithConfidence.length)
     : null;
 
   const meta = [
@@ -176,6 +177,144 @@ export async function generateSessionReport(session, generatedBy) {
       continue;
     }
 
+    // Special handling for Model 2 (Change Detection)
+    if (reply.model === 'bitcd') {
+      // Display Before/After images with labels
+      if (reply.images?.length >= 2) {
+        const box = 42;
+        ensureSpace(box + 12);
+        const gap = 8;
+        const totalWidth = box * 2 + gap;
+        const startX = MARGIN + (CONTENT_WIDTH - totalWidth) / 2;
+        
+        // Before image
+        try {
+          const dataUrl = await blobUrlToDataUrl(reply.images[0].url);
+          const dims = await loadImageDims(dataUrl);
+          const scale = Math.min(box / dims.width, box / dims.height);
+          const w = dims.width * scale;
+          const h = dims.height * scale;
+          doc.setDrawColor(...GOLD);
+          doc.setLineWidth(0.5);
+          doc.rect(startX, y, box, box);
+          doc.addImage(dataUrl, startX + (box - w) / 2, y + (box - h) / 2, w, h);
+          doc.setFont('courier', 'bold');
+          doc.setFontSize(8);
+          doc.setTextColor(...GOLD_DEEP);
+          doc.text('BEFORE', startX + box / 2, y + box + 5, { align: 'center' });
+        } catch (e) {
+          doc.setDrawColor(...RULE);
+          doc.rect(startX, y, box, box);
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(7);
+          doc.setTextColor(...MUTED);
+          doc.text('Image unavailable', startX + box / 2, y + box / 2, { align: 'center' });
+        }
+        
+        // After image
+        try {
+          const dataUrl = await blobUrlToDataUrl(reply.images[1].url);
+          const dims = await loadImageDims(dataUrl);
+          const scale = Math.min(box / dims.width, box / dims.height);
+          const w = dims.width * scale;
+          const h = dims.height * scale;
+          doc.setDrawColor(...GOLD);
+          doc.setLineWidth(0.5);
+          doc.rect(startX + box + gap, y, box, box);
+          doc.addImage(dataUrl, startX + box + gap + (box - w) / 2, y + (box - h) / 2, w, h);
+          doc.setFont('courier', 'bold');
+          doc.setFontSize(8);
+          doc.setTextColor(...GOLD_DEEP);
+          doc.text('AFTER', startX + box + gap + box / 2, y + box + 5, { align: 'center' });
+        } catch (e) {
+          doc.setDrawColor(...RULE);
+          doc.rect(startX + box + gap, y, box, box);
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(7);
+          doc.setTextColor(...MUTED);
+          doc.text('Image unavailable', startX + box + gap + box / 2, y + box / 2, { align: 'center' });
+        }
+        
+        y += box + 10;
+      }
+      
+      // Display change detection mask if available
+      if (reply.changeMaskUrl) {
+        ensureSpace(50);
+        const maskBox = 45;
+        const maskX = MARGIN + (CONTENT_WIDTH - maskBox) / 2;
+        
+        try {
+          const dataUrl = reply.changeMaskUrl.startsWith('data:') 
+            ? reply.changeMaskUrl 
+            : await blobUrlToDataUrl(reply.changeMaskUrl);
+          const dims = await loadImageDims(dataUrl);
+          const scale = Math.min(maskBox / dims.width, maskBox / dims.height);
+          const w = dims.width * scale;
+          const h = dims.height * scale;
+          
+          doc.setDrawColor(...GOLD);
+          doc.setLineWidth(0.5);
+          doc.rect(maskX, y, maskBox, maskBox);
+          doc.addImage(dataUrl, maskX + (maskBox - w) / 2, y + (maskBox - h) / 2, w, h);
+          
+          doc.setFont('courier', 'bold');
+          doc.setFontSize(8);
+          doc.setTextColor(...GOLD_DEEP);
+          doc.text('CHANGE DETECTION MASK', maskX + maskBox / 2, y + maskBox + 5, { align: 'center' });
+          y += maskBox + 8;
+        } catch (e) {
+          console.error('Failed to load change mask:', e);
+        }
+      }
+      
+      // Display change detection metrics
+      ensureSpace(12);
+      const metricsX = MARGIN + (CONTENT_WIDTH - 100) / 2;
+      doc.setFont('courier', 'bold');
+      doc.setFontSize(9);
+      doc.setTextColor(...INK);
+      doc.text('CHANGE DETECTION', metricsX, y);
+      y += 6;
+      
+      doc.setFont('courier', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(...BODY);
+      const changeDetected = reply.changePercent > 0 ? 'YES' : 'NO';
+      doc.text(`CHANGE DETECTED: ${changeDetected}`, metricsX, y);
+      y += 5;
+      doc.text(`CHANGE AREA: ${reply.changePercent}%`, metricsX, y);
+      y += 8;
+      
+      // Display explanation text
+      ensureSpace(6);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setTextColor(...INK);
+      const answerLines = doc.splitTextToSize(reply.text, CONTENT_WIDTH);
+      ensureSpace(answerLines.length * 5);
+      doc.text(answerLines, MARGIN, y);
+      y += answerLines.length * 5 + 6;
+      
+      // Model info without confidence
+      ensureSpace(7);
+      doc.setFont('courier', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(...GOLD_DEEP);
+      doc.text(
+        `${MODEL_META[reply.model].name}  \u00b7  ${reply.responseTime}s  \u00b7  SECOND REVIEW: PENDING`,
+        MARGIN,
+        y
+      );
+      y += 10;
+      
+      doc.setDrawColor(...RULE);
+      doc.setLineWidth(0.2);
+      doc.line(MARGIN, y - 4, PAGE.width - MARGIN, y - 4);
+      continue;
+    }
+
+    // Standard format for other models
     if (reply.images?.length) {
       const box = 36;
       ensureSpace(box + 8);

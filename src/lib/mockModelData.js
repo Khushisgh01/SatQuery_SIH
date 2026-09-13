@@ -128,7 +128,6 @@ export function mockBitCD(query, images) {
   const changePercent = randInt(3, 24);
   const result = {
     model: 'bitcd',
-    confidence: randInt(80, 95),
     responseTime: rand(2.1, 6.5).toFixed(1),
     text: `${regions[0].label} detected. Change extent increased by ${changePercent}%. ${
       regions.length

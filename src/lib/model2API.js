@@ -23,7 +23,7 @@ export function model2ApiBase() {
  * 
  * @param {string} query - The user's question/query (optional, can be empty)
  * @param {Array} images - Array of image objects with { id, url, file, date } (should be 2 images)
- * @returns {Promise<Object>} - Response with model, confidence, responseTime, text, changeRegions, changePercent, changeMaskUrl
+ * @returns {Promise<Object>} - Response with model, responseTime, text, changeRegions, changePercent, changeMaskUrl
  */
 export async function queryModel2ChangeDetection(query, images) {
   if (!images || images.length < 2) {
